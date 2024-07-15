@@ -1,0 +1,136 @@
+clc;
+clear all;
+close all;
+
+
+[y ,Fs]=audioread('female sample.wav'); % Read the audio sample
+frame=3500; % Set the frame rate
+
+
+[b0,a0]=mybutter(350/(Fs/2)); % Get teh coefficient of the filter matrix
+for i=1:length(y)/frame
+x=y(1+(i-1)*frame:i*frame);
+xin = abs(x);
+xin=myfilter(b0,a0,xin);
+xin = xin-mean(xin);
+x_out(1+(i-1)*frame:i*frame,1)=xin;
+x2=zeros(length(xin),1);
+x2(1:length(x)-1)=xin(2:length(x));
+zc=length(find((xin>0 & x2<0) | (xin<0 & x2>0)));
+F0(i)=0.5*Fs*zc/length(x);
+end
+Fx=mean(F0); % Take mean of all the frequency for each frame
+fprintf('Estimated frequency is %3.2f Hz.\n',Fx);
+fprintf('Estimated frequency by in-built function is %3.2f Hz.\n',mean(freq(y))); % Use the function freq to find the frequency
+if Fx>165 % set the threshold
+fprintf('Female Voice\n');
+else
+fprintf('Male Voice\n');
+end
+
+%% Plot the frequency graph
+figure;
+t = (1:length(F0)) * frame / Fs;
+plot(t, F0, 'b-', 'LineWidth', 2);
+hold on;
+threshold_line = ones(size(t)) * 165;
+plot(t, threshold_line, 'r--', 'LineWidth', 2);
+xlabel('Time (s)');
+ylabel('Frequency (Hz)');
+title('Estimated Frequency over Time');
+legend('Estimated Frequency', 'Threshold');
+grid on;
+
+function filtered = myfilter(b, a, raw)
+
+
+filtered = zeros(size(raw));
+
+
+for n = 3:size(raw,1)
+
+
+filtered(n,1) = b(1)* raw(n,1) + b(2)* raw(n-1,1) + b(3)* raw(n-2,1) ...
+- a(1)*filtered(n,1) - a(2)*filtered(n-1,1) - a(3)*filtered(n-2,1) ;
+end
+end
+function [B,A] = mybutter(W)
+
+
+
+
+
+
+V = tan(W * 1.5707963267948966);
+Sg = V ^ 2;
+Sp = V * [-1-1i, -1+1i] / sqrt(2);
+
+
+P = (1 + Sp) ./ (1 - Sp);
+G = real(Sg / prod(1 - Sp));
+
+
+B = G * [1, 2, 1];
+A = real(poly(P));
+end
+
+
+function [ f0 ] = freq( x ,fs)
+oneCast = 1;
+r = length(x);
+c = 1;
+WindowLength=2293;
+hopLength =441;
+numHopsFinal = ceil((r-WindowLength)/hopLength) + oneCast;
+N= 2293;
+hopSize = 441;
+numHops = ceil((r-N)/hopSize) + oneCast;
+y = zeros(N,numHops);
+for hop = 1:numHops
+temp = x(1+hopSize*(hop-1):min(N+hopSize*(hop-1),r),1);
+y(1:min(N,numel(temp)),hop) = temp;
+end
+
+
+f0 = NCF(y);
+bE =[50,400];
+f0(f0<bE(1)) = bE(1);
+f0(f0>bE(end)) = bE(end);
+f0 = reshape(f0,numHopsFinal,c);
+
+
+end
+
+
+function f0 = NCF(y)
+ran=[50,400];
+fs=44100;
+edge = round(fs./fliplr(ran));
+r = cast(size(y,1),'like',y);
+mxl = min(edge(end),r - 1);
+m2 = 2^nextpow2(2*r - 1);
+c1 = real(ifft(abs(fft(y,m2,1)).^2,[],1))./sqrt(m2);
+Rt = [c1(m2 - mxl + (1:mxl),:); c1(1:mxl+1,:)];
+yRMS = sqrt(Rt(edge(end)+1,:));
+lag = Rt( (edge(end)+1+edge(1)):end, : );
+yRMS = repmat(yRMS,size(lag,1),1);
+lag = lag./yRMS;
+domain = [zeros(edge(1)-1,size(lag,2));lag];
+locs = getCandidates(domain,edge);
+f0 = fs./locs;
+end
+
+
+function locs = getCandidates(domain,edge)
+numCol = size(domain,2);
+locs = zeros(numCol,1,'like',domain);
+lower = edge(1);
+upper = edge(end);
+assert(upper<192000);
+domain = domain(lower:upper,:);
+for c = 1:numCol
+[~,tempLoc] = max( domain(:,c) );
+locs(c) = tempLoc;
+end
+locs = lower + locs - 1;
+end
